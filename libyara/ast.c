@@ -519,6 +519,7 @@ int new_string( YARA_CONTEXT* context,
 {
     STRING* new_string;
     int result = ERROR_SUCCESS;
+    unsigned char * ptr = NULL;
         
     new_string = (STRING*) yr_malloc(sizeof(STRING));
     
@@ -537,7 +538,34 @@ int new_string( YARA_CONTEXT* context,
         
         if (flags & STRING_FLAGS_HEXADECIMAL)
         {
+            int is_plain_text = 1;
+
             result = new_hex_string(context, charstr, &new_string->string, &new_string->mask, &new_string->length);  
+
+            // can this hex string be represented as a simple string?
+            ptr = new_string->mask;
+            while (ptr < (new_string->mask + new_string->length)) 
+            {
+                if (*ptr != 0xFF) // anything but a 0xFF is a special directive for hex scanning
+                {
+                    is_plain_text = 0;
+                    break;
+                }
+
+                ptr++;
+            }
+
+            // if this is only a simple text string then we should just use normal string scanning
+            if (is_plain_text) 
+            {
+                SIZED_STRING * tmp = (SIZED_STRING *)malloc(sizeof(SIZED_STRING) + new_string->length);
+                tmp->length = new_string->length;
+                memcpy(tmp->c_string, new_string->string, new_string->length);
+                flags &= ~(STRING_FLAGS_HEXADECIMAL);
+                new_string->flags = flags;
+                result = new_text_string(context, tmp, flags, &new_string->string, &new_string->re, &new_string->length);
+                free(tmp);
+            }
         }
         else
         {
