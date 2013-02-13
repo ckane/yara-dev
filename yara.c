@@ -374,8 +374,8 @@ int callback(RULE* rule, void* data)
 						}
 						else if (IS_WIDE(string))
 						{
-							print_string(match->data, match->length, TRUE,
-								(match->data[1] == '\0')?TRUE:FALSE);
+							print_string(match->data, match->length,
+								(match->data[1] == '\0') ? TRUE : FALSE);
 						}
 						else
 						{
