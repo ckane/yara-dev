@@ -366,7 +366,8 @@ int callback(RULE* rule, void* data)
 
 					while (match != NULL)
 					{
-						printf("0x%lx:%s: ", match->offset, string->identifier);
+						printf("0x%lx:%s:%s: ", match->offset, string->identifier,
+                                                  IS_HEX(string)?"H":(IS_REGEXP(string)?"R":(IS_WIDE(string) && match->data[1] == '\0'?"W":"A")));
 						
 						if (IS_HEX(string))
 						{
