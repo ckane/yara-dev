@@ -16,6 +16,7 @@ limitations under the License.
 
 #include <string.h>
 #include <ctype.h>
+#include <sys/time.h>
 
 #include "filemap.h"
 #include "yara.h"
