@@ -39,6 +39,7 @@ limitations under the License.
 #define MAX_PATH 255
 #endif
 
+extern int yara_timing;
 int recursive_search = FALSE;
 int show_tags = FALSE;
 int show_specified_tags = FALSE;
@@ -436,10 +437,12 @@ int process_cmd_line(YARA_CONTEXT* context, int argc, char const* argv[])
 
             case 'S':
                 show_summary_statistics = TRUE;
+                yara_timing = 1;
                 break;
 
             case 'T':
                 show_detailed_statistics = TRUE;
+                yara_timing = 1;
                 break;
 			
 			case 'n':

@@ -16,6 +16,7 @@ limitations under the License.
 
 #include <string.h>
 #include <ctype.h>
+#include <time.h>
 #include <sys/time.h>
 
 #include "filemap.h"
@@ -39,11 +40,14 @@ limitations under the License.
 #define inline __inline
 #endif
 
-#define START_MEASURE(TV_START) gettimeofday(&TV_START, NULL)
-#define STOP_MEASURE(STR, TV_START, TV_STOP) \
-    gettimeofday(&TV_STOP, NULL); \
-    STR->total_time += (((double)(TV_STOP.tv_sec) * 1000.0) + ((double)(TV_STOP.tv_usec) / 1000.0)) - \
-    (((double)(TV_START.tv_sec) * 1000.0) + ((double)(TV_START.tv_usec) / 1000.0))
+int yara_timing = 0;
+#define START_MEASURE(TS_START) if(yara_timing) clock_gettime(CLOCK_MONOTONIC, &TS_START)
+#define STOP_MEASURE(STR, TS_START, TS_STOP) \
+    if(yara_timing) {\
+    clock_gettime(CLOCK_MONOTONIC, &TS_STOP); \
+    STR->total_time += (((double)(TS_STOP.tv_sec) * 1000.0) + ((double)(TS_STOP.tv_nsec) / 1000000.0)) - \
+    (((double)(TS_START.tv_sec) * 1000.0) + ((double)(TS_START.tv_nsec) / 1000000.0)); \
+    }
 
 static char lowercase[256];
 static char altercase[256];
@@ -654,7 +658,7 @@ inline int string_match(unsigned char* buffer, size_t buffer_size, STRING* strin
     unsigned char* tmp;
 
     // for measuring performance
-    struct timeval tv_start, tv_stop;
+    struct timespec ts_start, ts_stop;
     double start, stop;
 
     // if the precondition failed for the rule this string is in
@@ -666,12 +670,12 @@ inline int string_match(unsigned char* buffer, size_t buffer_size, STRING* strin
     }
 
     string->total_checks++;
-    START_MEASURE(tv_start);
+    START_MEASURE(ts_start);
     
     if (IS_HEX(string))
     {
         match = hex_match(buffer, buffer_size, string->string, string->length, string->mask);
-        STOP_MEASURE(string, tv_start, tv_stop);
+        STOP_MEASURE(string, ts_start, ts_stop);
         return match;
     }
     else if (IS_REGEXP(string)) 
@@ -716,7 +720,7 @@ inline int string_match(unsigned char* buffer, size_t buffer_size, STRING* strin
                     yr_free(tmp);           
                 } 
                     
-                STOP_MEASURE(string, tv_start, tv_stop);
+                STOP_MEASURE(string, ts_start, ts_stop);
                 return match * 2;
             }
             
@@ -724,7 +728,7 @@ inline int string_match(unsigned char* buffer, size_t buffer_size, STRING* strin
         else
         {
             match = regexp_match(buffer, buffer_size, string->string, string->length, string->re, negative_size);   
-            STOP_MEASURE(string, tv_start, tv_stop);
+            STOP_MEASURE(string, ts_start, ts_stop);
             return match;
         }
     }
@@ -764,7 +768,7 @@ inline int string_match(unsigned char* buffer, size_t buffer_size, STRING* strin
         }   
         
         if (match > 0) {
-            STOP_MEASURE(string, tv_start, tv_stop);
+            STOP_MEASURE(string, ts_start, ts_stop);
             return match;
         }
     }
@@ -792,7 +796,7 @@ inline int string_match(unsigned char* buffer, size_t buffer_size, STRING* strin
             }
         }
         
-        STOP_MEASURE(string, tv_start, tv_stop);
+        STOP_MEASURE(string, ts_start, ts_stop);
         return match;
     }
     
