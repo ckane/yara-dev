@@ -1,4 +1,5 @@
 AC_INIT([yara], [1.7], [vmalvarez@virustotal.com])
+AM_PROG_AR
 LT_INIT
 AM_INIT_AUTOMAKE([-Wall -Werror])
 AC_PROG_CC
