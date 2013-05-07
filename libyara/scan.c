@@ -15,6 +15,7 @@ limitations under the License.
 */
 
 #include <string.h>
+#include <pthread.h>
 #include <ctype.h>
 #include <time.h>
 #include <sys/time.h>
@@ -27,6 +28,7 @@ limitations under the License.
 #include "mem.h"
 #include "eval.h"
 #include "regex.h"
+#include "scan.h"
 
 #ifndef TRUE
 #define TRUE 1
@@ -40,14 +42,8 @@ limitations under the License.
 #define inline __inline
 #endif
 
-int yara_timing = 0;
-#define START_MEASURE(TS_START) if(yara_timing) clock_gettime(CLOCK_MONOTONIC, &TS_START)
-#define STOP_MEASURE(STR, TS_START, TS_STOP) \
-    if(yara_timing) {\
-    clock_gettime(CLOCK_MONOTONIC, &TS_STOP); \
-    STR->total_time += (((double)(TS_STOP.tv_sec) * 1000.0) + ((double)(TS_STOP.tv_nsec) / 1000000.0)) - \
-    (((double)(TS_START.tv_sec) * 1000.0) + ((double)(TS_START.tv_nsec) / 1000000.0)); \
-    }
+// thread sync
+extern pthread_mutex_t match_lock;
 
 static char lowercase[256];
 static char altercase[256];
@@ -657,10 +653,6 @@ inline int string_match(unsigned char* buffer, size_t buffer_size, STRING* strin
     unsigned char tmp_buffer[512];
     unsigned char* tmp;
 
-    // for measuring performance
-    struct timespec ts_start, ts_stop;
-    double start, stop;
-
     // if the precondition failed for the rule this string is in
     // then nothing can possibly match
     if (string->rule->flags & RULE_FLAGS_FAILED_PRECONDITION)
@@ -668,15 +660,10 @@ inline int string_match(unsigned char* buffer, size_t buffer_size, STRING* strin
         //printf("skipping string %s in rule %s\n", string->identifier, string->rule->identifier);
         return 0;
     }
-
-    string->total_checks++;
-    START_MEASURE(ts_start);
     
     if (IS_HEX(string))
     {
-        match = hex_match(buffer, buffer_size, string->string, string->length, string->mask);
-        STOP_MEASURE(string, ts_start, ts_stop);
-        return match;
+        return hex_match(buffer, buffer_size, string->string, string->length, string->mask);
     }
     else if (IS_REGEXP(string)) 
     {
@@ -720,16 +707,13 @@ inline int string_match(unsigned char* buffer, size_t buffer_size, STRING* strin
                     yr_free(tmp);           
                 } 
                     
-                STOP_MEASURE(string, ts_start, ts_stop);
                 return match * 2;
             }
             
         }
         else
         {
-            match = regexp_match(buffer, buffer_size, string->string, string->length, string->re, negative_size);   
-            STOP_MEASURE(string, ts_start, ts_stop);
-            return match;
+            return regexp_match(buffer, buffer_size, string->string, string->length, string->re, negative_size);   
         }
     }
     
@@ -767,10 +751,8 @@ inline int string_match(unsigned char* buffer, size_t buffer_size, STRING* strin
             }
         }   
         
-        if (match > 0) {
-            STOP_MEASURE(string, ts_start, ts_stop);
+        if (match > 0)
             return match;
-        }
     }
     
     if ((flags & STRING_FLAGS_ASCII) && IS_ASCII(string) && string->length <= buffer_size)
@@ -796,7 +778,6 @@ inline int string_match(unsigned char* buffer, size_t buffer_size, STRING* strin
             }
         }
         
-        STOP_MEASURE(string, ts_start, ts_stop);
         return match;
     }
     
@@ -840,6 +821,8 @@ inline int find_matches_for_strings(   STRING_LIST_ENTRY* first_string,
                 match->next = NULL;
                 
                 memcpy(match->data, buffer, len);         
+
+                pthread_mutex_lock(&match_lock);
                 
                 if (string->matches_head == NULL)
                 {
@@ -852,6 +835,8 @@ inline int find_matches_for_strings(   STRING_LIST_ENTRY* first_string,
                 }
                 
                 string->matches_tail = match;
+
+                pthread_mutex_unlock(&match_lock);
             }
             else
             {
@@ -866,17 +851,16 @@ inline int find_matches_for_strings(   STRING_LIST_ENTRY* first_string,
     return ERROR_SUCCESS;
 }
 
-
-int find_matches(   unsigned char first_char, 
-                    unsigned char second_char, 
-                    unsigned char* buffer, 
-                    size_t buffer_size, 
-                    size_t current_offset,
-                    int flags,
-                    int negative_size, 
-                    YARA_CONTEXT* context)
+int find_matches(
+    unsigned char first_char,
+    unsigned char second_char,
+    unsigned char* buffer,
+    size_t buffer_size,
+    size_t current_offset,
+    int flags,
+    int negative_size,
+    YARA_CONTEXT* context)
 {
-    
     int result = ERROR_SUCCESS;
         
     if (context->hash_table.hashed_strings_2b[first_char][second_char] != NULL)

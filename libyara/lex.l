@@ -12,7 +12,7 @@ are met:
    documentation and/or other materials provided with the distribution.
 3. All advertising materials mentioning features or use of this software
    must display the following acknowledgement:
-   This product includes software developed by Victor M. Alvarez and its 
+   This product includes software developed by Victor M. Alvarez and its
    contributors.
 4. Neither the name of Victor M. Alvarez nor the names of its contributors
    may be used to endorse or promote products derived from this software
@@ -80,6 +80,7 @@ POSSIBILITY OF SUCH DAMAGE.
 %x str
 %x regexp
 %x include
+%x comment
 
 digit         [0-9]
 letter        [a-zA-Z]
@@ -136,7 +137,11 @@ hexdigit      [a-fA-F0-9]
 "index"                              { return _INDEX_;       }
 
 
-"/*"([^\*]|\*[^\/])*"*/"             { /* skip comments */ }
+"/*"                                 { BEGIN(comment); }
+<comment>"*/"                        { BEGIN(INITIAL); }
+<comment>(.|\n)                      { /* skip comments */ }
+
+
 
 "//"[^\n]*                           { /* skip single-line comments */ }
 
@@ -158,14 +163,14 @@ include[ \t]+\"                      {
                                           char            *f;
                                           FILE*           fh;
                                           YARA_CONTEXT*   context = yyget_extra(yyscanner);
-  
+
                                           if (context->allow_includes)
                                           {
                                               *yyextra->lex_buf_ptr = '\0'; // null-terminate included file path
-  
+
                                               // move path of current source file into buffer
                                               current_file_name = yr_get_current_file_name(context);
-  
+
                                               if (current_file_name != NULL)
                                               {
                                                   strncpy(buffer, yr_get_current_file_name(context), sizeof(buffer)-1);
@@ -175,24 +180,24 @@ include[ \t]+\"                      {
                                               {
                                                   buffer[0] = '\0';
                                               }
-  
+
                                               // make included file path relative to current source file
                                               s = strrchr(buffer, '/');
-  
+
                                               #ifdef WIN32
                                               b = strrchr(buffer, '\\'); // in Windows both path delimiters are accepted
                                               #endif
-  
+
                                               if (s != NULL || b != NULL)
                                               {
                                                   f = (b > s)? (b + 1): (s + 1);
-  
+
                                                   strncpy(f, yyextra->lex_buf, sizeof(buffer) - (f - buffer));
                                                   buffer[sizeof(buffer)-1] = '\0';
-  
+
                                                   // SECURITY: Potential for directory traversal here.
                                                   fh = fopen(buffer, "r");
-  
+
                                                   // if include file was not found relative to current source file, try to open it
                                                   // with path as specified by user (maybe user wrote a full path)
                                                   if (fh == NULL)
@@ -206,7 +211,7 @@ include[ \t]+\"                      {
                                                  // SECURITY: Potential for directory traversal here.
                                                  fh = fopen(yyextra->lex_buf, "r");
                                              }
-  
+
                                              if (fh != NULL)
                                              {
                                                  int error_code = ERROR_SUCCESS;
@@ -216,7 +221,7 @@ include[ \t]+\"                      {
                                                      if (error_code == ERROR_INCLUDES_CIRCULAR_REFERENCE)
                                                      {
                                                          yyerror(yyscanner, "includes circular reference");
-                                                     } 
+                                                     }
                                                      else if (error_code == ERROR_INCLUDE_DEPTH_EXCEEDED)
                                                      {
                                                          yyerror(yyscanner, "includes circular reference");
@@ -224,10 +229,10 @@ include[ \t]+\"                      {
 
                                                      yyterminate();
                                                  }
-												 
-												 yr_push_file(context, fh);
+
+                                                 yr_push_file(context, fh);
                                                  yypush_buffer_state(yy_create_buffer(fh, YY_BUF_SIZE, yyscanner), yyscanner);
-												 
+
                                              }
                                              else
                                              {
@@ -246,13 +251,13 @@ include[ \t]+\"                      {
 
 <<EOF>>                              {
                                          YARA_CONTEXT* context = yyget_extra(yyscanner);
-				                         FILE* file = yr_pop_file(context);
-				                         
-				                         if (file != NULL)
-				                         {
-				                            fclose(file);
-				                         }
-				                         
+                                         FILE* file = yr_pop_file(context);
+
+                                         if (file != NULL)
+                                         {
+                                            fclose(file);
+                                         }
+
                                          yr_pop_file_name(context);
                                          yypop_buffer_state(yyscanner);
 
@@ -346,7 +351,10 @@ $({letter}|{digit}|_)*               {
 <str>\\x{hexdigit}{2}                {
                                          int result;
 
-                                         sscanf( yytext + 2, "%x", &result );
+                                         if (sscanf( yytext + 2, "%x", &result ) != 1) {
+                                           yyerror(yyscanner, "Invalid escaped hex digit");
+                                           yyterminate();
+                                         }
                                          LEX_CHECK_SPACE_OK("X", yyextra->lex_buf_len, LEX_BUF_SIZE);
                                          *yyextra->lex_buf_ptr++ = result;
                                          yyextra->lex_buf_len++;
@@ -439,7 +447,15 @@ $({letter}|{digit}|_)*               {
 [ \t\r\n]                            /* skip whitespace */
 
 .                                    {
-                                         return yytext[0];
+                                        if (yytext[0] >= 32 && yytext[0] < 127)
+                                        {
+                                          return yytext[0];
+                                        }
+                                        else
+                                        {
+                                          yyerror(yyscanner, "non-ascii character");
+                                          yyterminate();
+                                        }
                                      }
 %%
 

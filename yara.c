@@ -46,12 +46,11 @@ int show_specified_tags = FALSE;
 int show_specified_rules = FALSE;
 int show_strings = FALSE;
 int show_meta = FALSE;
-int show_summary_statistics = FALSE;
-int show_detailed_statistics = FALSE;
 int negate = FALSE;
 int count = 0;
 int limit = 0;
-
+extern int thread_count;
+int compile_only = FALSE;
 
 TAG* specified_tags_list = NULL;
 
@@ -71,19 +70,19 @@ void show_help()
 {
     printf("usage:  yara [OPTION]... [RULEFILE]... FILE | PID\n");
     printf("options:\n");
+	printf("  -c <count>                cpu (thread) count (defaults to 1)\n");
 	printf("  -t <tag>                  print rules tagged as <tag> and ignore the rest. Can be used more than once.\n");
     printf("  -i <identifier>           print rules named <identifier> and ignore the rest. Can be used more than once.\n");
 	printf("  -n                        print only not satisfied rules (negate).\n");
 	printf("  -g                        print tags.\n");
 	printf("  -m                        print metadata.\n");
 	printf("  -s                        print matching strings.\n");
-	printf("  -S                        print summary statistics.\n");
-	printf("  -T                        print detailed statistics.\n");
 	printf("  -l <number>               abort scanning after a <number> of rules matched.\n");
 	printf("  -d <identifier>=<value>   define external variable.\n");
     printf("  -r                        recursively search directories.\n");
 	printf("  -f                        fast matching mode.\n");
 	printf("  -v                        show version information.\n");
+	printf("  -C                        only compile the specified rules to check for syntax errors.\n");
 	printf("\nReport bugs to: <%s>\n", PACKAGE_BUGREPORT);
 }
 
@@ -411,7 +410,7 @@ int process_cmd_line(YARA_CONTEXT* context, int argc, char const* argv[])
     IDENTIFIER* identifier;
 	opterr = 0;
  
-	while ((c = getopt (argc, (char**) argv, "rnsSTvgml:t:i:d:f")) != -1)
+	while ((c = getopt (argc, (char**) argv, "rnsvgml:t:i:d:fc:C")) != -1)
 	{
 		switch (c)
 	    {
@@ -434,16 +433,6 @@ int process_cmd_line(YARA_CONTEXT* context, int argc, char const* argv[])
 			case 's':
 				show_strings = TRUE;
 				break;
-
-            case 'S':
-                show_summary_statistics = TRUE;
-                yara_timing = 1;
-                break;
-
-            case 'T':
-                show_detailed_statistics = TRUE;
-                yara_timing = 1;
-                break;
 			
 			case 'n':
     			negate = TRUE;
@@ -522,6 +511,14 @@ int process_cmd_line(YARA_CONTEXT* context, int argc, char const* argv[])
 		    case 'l':	    
                 limit = atoi(optarg);
                 break;
+
+            case 'c':
+                thread_count = atoi(optarg);
+                break;
+
+            case 'C':
+                compile_only = TRUE;
+                break;
 	
 		    case '?':
 	
@@ -575,16 +572,16 @@ int main(int argc, char const* argv[])
 		return 0;
 	}	
 		
-	if (argc == 1 || optind == argc)
+	if (argc == 1 || ((optind == argc) && (! compile_only)))
 	{
 	    yr_destroy_context(context);
 		show_help();
 		return 0;
 	}
-	
+
 	context->error_report_function = report_error;	
 			
-	for (i = optind; i < argc - 1; i++)
+	for (i = optind; i < (compile_only ? argc : argc - 1); i++)
 	{
 		rule_file = fopen(argv[i], "r");
 		
@@ -599,16 +596,18 @@ int main(int argc, char const* argv[])
 			if (errors) /* errors during compilation */
 			{
 				yr_destroy_context(context);				
-				return 0;
+				return 2;
 			}
 		}
 		else
 		{
 			fprintf(stderr, "could not open file: %s\n", argv[i]);
+            if (compile_only)
+                return 2;
 		}
 	}
-	
-	if (optind == argc - 1)  /* no rule files, read rules from stdin */
+
+	if (optind == (compile_only ? argc : argc - 1))  /* no rule files, read rules from stdin */
 	{
 		yr_push_file_name(context, "stdin");
 		
@@ -620,6 +619,12 @@ int main(int argc, char const* argv[])
 			return 0;
 		}		
 	}
+
+    if (compile_only)
+    {
+        printf("syntax check OK\n");
+        return 0;
+    }
 			
 	if (is_numeric(argv[argc - 1]))
     {
@@ -648,64 +653,6 @@ int main(int argc, char const* argv[])
 	{
 		yr_scan_file(argv[argc - 1], context, callback, (void*) argv[argc - 1]);
 	}
-
-    if (show_summary_statistics || show_detailed_statistics)
-    {
-        int _2byte_count = 0;
-        int _1byte_count = 0;
-        int non_hashed_count = 0;
-        int i = 0;
-        int b2 = 0;
-        STRING_LIST_ENTRY* ptr = NULL;
-        STRING * str = NULL;
-        RULE * rule = NULL;
-
-        // show hash table usage
-        for (i = 0; i < 256; i++) {
-            for (b2 = 0; b2 < 256; b2++) {
-                ptr = context->hash_table.hashed_strings_2b[i][b2];
-                while (ptr != NULL) {
-                    _2byte_count++;
-                    if (show_detailed_statistics)
-                        printf("2B:%s:%s\n", ptr->string->rule->identifier, ptr->string->identifier);
-                    ptr = ptr->next;
-                }
-            }
-
-            ptr = context->hash_table.hashed_strings_1b[i];
-            while (ptr != NULL) {
-                _1byte_count++;
-                if (show_detailed_statistics)
-                    printf("1B:%s:%s\n", ptr->string->rule->identifier, ptr->string->identifier);
-                ptr = ptr->next;
-            }
-        }
-
-        ptr = context->hash_table.non_hashed_strings;
-        while (ptr != NULL) {
-            non_hashed_count++;
-            if (show_detailed_statistics)
-                printf("XX:%s:%s\n", ptr->string->rule->identifier, ptr->string->identifier);
-            ptr = ptr->next;
-        }
-
-        printf("2-byte hashed count = %d\n", _2byte_count);
-        printf("1-byte hashed count = %d\n", _1byte_count);
-        printf("non-hashed count = %d\n", non_hashed_count);
-
-        printf("rule:string\tCOUNT\tMILLISECONDS\n");
-        rule = context->rule_list.head;
-        while (rule != NULL) {
-            str = rule->string_list_head;
-            while (str != NULL) {
-                if (show_detailed_statistics)
-                    printf("%s:%s\t%d\t%.2f\n", rule->identifier, str->identifier, str->total_checks, str->total_time);
-                str = str->next;
-            }
-
-            rule = rule->next;
-        }
-    }
 	
 	yr_destroy_context(context);
 	

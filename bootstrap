@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+
+# run this script to generate the ./configure script
+
+aclocal
+autoconf
+libtoolize
+autoheader
+automake --add-missing
+cd libyara
+aclocal
+autoconf
+libtoolize
+autoheader
+automake --add-missing

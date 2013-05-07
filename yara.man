@@ -23,6 +23,11 @@ Print rules tagged as
 .I tag
 and ignore the rest. This option can be used multiple times.
 .TP
+.BI \-c " number"
+Execute
+.I number
+threads to perform the scan.  Defaults to 1.
+.TP
 .BI \-i " identifier"
 Print rules named
 .I identifier
@@ -53,6 +58,9 @@ Scan files in directories recursively.
 .TP
 .B \-f 
 Speeds up scanning by searching only for the first occurrence of each pattern.
+.TP
+.B \-C
+Only compile the rules.  Returns status code of 2 if compilation fails.
 .TP
 .B \-v 
 Show version information.
